@@ -335,16 +335,6 @@ private struct SettingsDefaultsSection: View {
     @Binding var defaultModel: String
     @Binding var defaultVoice: String
 
-    /// Only models from configured providers
-    private var availableModels: [TTSModel] {
-        TTSModel.allCases.filter { $0.provider.isConfigured }
-    }
-
-    /// Only voices from configured providers
-    private var availableVoices: [Voice] {
-        TTSProvider.allCases.filter { $0.isConfigured }.flatMap { $0.availableVoices }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("DEFAULTS")
@@ -360,36 +350,6 @@ private struct SettingsDefaultsSection: View {
                 Picker("", selection: $defaultFormat) {
                     ForEach(AudioFormat.allCases) { f in
                         Text(f.rawValue.uppercased()).tag(f)
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 20)
-
-            HStack(spacing: 6) {
-                Text("Model")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .trailing)
-                Picker("", selection: $defaultModel) {
-                    ForEach(availableModels) { m in
-                        Text("\(m.provider.displayName) — \(m.displayName)").tag(m.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 20)
-
-            HStack(spacing: 6) {
-                Text("Voice")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .trailing)
-                Picker("", selection: $defaultVoice) {
-                    ForEach(availableVoices) { v in
-                        Text("\(v.provider.displayName) — \(v.displayName)").tag(v.id)
                     }
                 }
                 .labelsHidden()
