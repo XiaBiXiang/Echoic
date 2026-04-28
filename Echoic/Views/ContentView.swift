@@ -3,24 +3,73 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var viewModel = TTSViewModel()
     @Binding var showSettings: Bool
+    @AppStorage("provider_config_timestamp") private var configTimestamp: Double = 0
 
     var body: some View {
-        ZStack {
-            NavigationSplitView {
-                SidebarView(viewModel: viewModel)
-                    .navigationTitle("Echoic")
-            } detail: {
+        ZStack(alignment: .trailing) {
+            VStack(spacing: 0) {
+                // Toolbar: provider + model + voice + format
+                toolbarSection
+
+                Divider()
+
+                // Main content
                 TTSPlayerView(viewModel: viewModel)
             }
             .background(.ultraThinMaterial)
 
-            // Settings overlay panel
-            if showSettings {
-                SettingsOverlay(showSettings: $showSettings)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
+            // Settings overlay — always present, slides in/out
+            SettingsOverlay(showSettings: $showSettings)
+                .offset(x: showSettings ? 0 : 380 + 20)
+                .opacity(showSettings ? 1 : 0)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showSettings)
+        .onChange(of: configTimestamp) { _, _ in
+            // Re-select provider if current one became unavailable
+            if !viewModel.selectedProvider.isConfigured {
+                if let first = TTSProvider.allCases.first(where: { $0.isConfigured }) {
+                    viewModel.selectedProvider = first
+                }
+            }
+        }
+    }
+
+    // MARK: - Toolbar
+
+    private var toolbarSection: some View {
+        let _ = configTimestamp // Force SwiftUI dependency tracking
+        return HStack(spacing: 16) {
+            // Provider picker
+            Picker("", selection: $viewModel.selectedProvider) {
+                ForEach(TTSProvider.allCases.filter { $0.isConfigured }) { p in
+                    Text(p.displayName).tag(p)
+                }
+            }
+            .labelsHidden()
+
+            // Format picker
+            Picker("Format", selection: $viewModel.selectedFormat) {
+                ForEach(AudioFormat.allCases) { f in
+                    Text(f.rawValue.uppercased()).tag(f)
+                }
+            }
+
+            Spacer()
+
+            // Settings gear button
+            Button {
+                showSettings.toggle()
+            } label: {
+                Image(systemName: "gearshape")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .onChange(of: viewModel.selectedProvider) { _, _ in
+            viewModel.updateModelAndVoiceForProvider()
+        }
     }
 }
 
@@ -28,74 +77,34 @@ struct ContentView: View {
 
 private struct SettingsOverlay: View {
     @Binding var showSettings: Bool
-    @AppStorage("app_appearance") private var appearance: String = "system"
 
     var body: some View {
         HStack(spacing: 0) {
-            // Dimmed backdrop — click to dismiss
-            Color.black.opacity(0.2)
+            // Dimmed backdrop
+            Color.black.opacity(showSettings ? 0.2 : 0)
                 .onTapGesture {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        showSettings = false
-                    }
-                }
-
-            // Settings panel
-            SettingsView(showCloseButton: true, onClose: {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     showSettings = false
                 }
-            })
-            .frame(width: 400)
-            .background(.ultraThinMaterial)
-            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0, bottomTrailingRadius: 12, topTrailingRadius: 0))
-            .shadow(color: .black.opacity(0.15), radius: 16, x: -4, y: 0)
+                .allowsHitTesting(showSettings)
+
+            // Settings panel
+            SettingsView(showCloseButton: true, onClose: { showSettings = false })
+                .frame(width: 380)
+                .background(.ultraThinMaterial)
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0, bottomTrailingRadius: 12, topTrailingRadius: 0))
+                .shadow(color: .black.opacity(0.15), radius: 16, x: -4, y: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - Sidebar
-
-struct SidebarView: View {
-    @ObservedObject var viewModel: TTSViewModel
-
-    var body: some View {
-        List {
-            Section("Voice Settings") {
-                Picker("Model", selection: $viewModel.selectedModel) {
-                    ForEach(viewModel.selectedProvider.availableModels) { model in
-                        Text(model.displayName).tag(model)
-                    }
-                }
-
-                Picker("Voice", selection: $viewModel.selectedVoice) {
-                    ForEach(viewModel.selectedProvider.availableVoices) { voice in
-                        Text(voice.displayName).tag(voice)
-                    }
-                }
-
-                Picker("Format", selection: $viewModel.selectedFormat) {
-                    ForEach(AudioFormat.allCases) { format in
-                        Text(format.rawValue.uppercased()).tag(format)
-                    }
-                }
-            }
-
-            Section("History") {
-                Label("Coming soon", systemImage: "clock.arrow.circlepath")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .listStyle(.sidebar)
-    }
-}
-
-// MARK: - TTS Player (Detail)
+// MARK: - TTS Player
 
 struct TTSPlayerView: View {
     @ObservedObject var viewModel: TTSViewModel
     @State private var filename = ""
+    @State private var showRateMenu = false
+    @State private var isSeeking = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -105,21 +114,17 @@ struct TTSPlayerView: View {
             Divider()
             playbackSection
         }
-        .padding()
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     // MARK: - Text Input
 
     private var textInputSection: some View {
         VStack(alignment: .leading) {
-            Label("Text to Speech", systemImage: "text.bubble")
-                .font(.headline)
-
             TextEditor(text: $viewModel.inputText)
                 .font(.body)
-                .padding(4)
+                .padding(6)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color(nsColor: .textBackgroundColor))
@@ -128,13 +133,13 @@ struct TTSPlayerView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                 )
-                .frame(minHeight: 120, maxHeight: .infinity)
+                .frame(minHeight: 160, maxHeight: .infinity)
                 .overlay(alignment: .topLeading) {
                     if viewModel.inputText.isEmpty {
-                        Text("Enter or paste your English text here...")
+                        Text("Enter or paste text here...")
                             .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 9)
                             .allowsHitTesting(false)
                     }
                 }
@@ -146,8 +151,7 @@ struct TTSPlayerView: View {
     private var actionBar: some View {
         HStack {
             if viewModel.isSynthesizing {
-                ProgressView()
-                    .controlSize(.small)
+                ProgressView().controlSize(.small)
                 Text("Synthesizing...")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -187,22 +191,53 @@ struct TTSPlayerView: View {
                         playPauseButton
 
                         VStack(alignment: .leading, spacing: 4) {
-                            ProgressView(
-                                value: viewModel.playbackService.currentTime,
-                                total: viewModel.playbackService.duration > 0 ? viewModel.playbackService.duration : 1
+                            Slider(
+                                value: $viewModel.currentTime,
+                                in: 0...max(viewModel.duration, 0.01),
+                                onEditingChanged: { editing in
+                                    isSeeking = editing
+                                    if !editing {
+                                        viewModel.playbackService.seek(to: viewModel.currentTime)
+                                    }
+                                }
                             )
                             .tint(.accentColor)
 
                             HStack {
-                                Text(formatTime(viewModel.playbackService.currentTime))
+                                Text(formatTime(isSeeking ? viewModel.currentTime : viewModel.currentTime))
                                 Spacer()
-                                Text(formatTime(viewModel.playbackService.duration))
+                                Text(formatTime(viewModel.duration))
                             }
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         }
 
                         Spacer()
+
+                        // Playback rate
+                        Menu {
+                            ForEach(AudioPlaybackService.availableRates, id: \.self) { rate in
+                                Button {
+                                    viewModel.playbackService.setRate(rate)
+                                } label: {
+                                    if rate == viewModel.playbackRate {
+                                        Label("\(formatRate(rate))x", systemImage: "checkmark")
+                                    } else {
+                                        Text("\(formatRate(rate))x")
+                                    }
+                                }
+                            }
+                        } label: {
+                            Text("\(formatRate(viewModel.playbackRate))x")
+                                .font(.caption)
+                                .monospacedDigit()
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                                .foregroundStyle(.secondary)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
 
                         Button {
                             viewModel.saveAudio(filename: filename.isEmpty ? nil : filename)
@@ -246,17 +281,17 @@ struct TTSPlayerView: View {
 
     private var playPauseButton: some View {
         Button {
-            if viewModel.playbackService.isPlaying {
+            if viewModel.isPlaying {
                 viewModel.playbackService.pause()
             } else if viewModel.audioData != nil {
-                if viewModel.playbackService.currentTime > 0 {
+                if viewModel.currentTime > 0 {
                     viewModel.playbackService.resume()
                 } else {
                     viewModel.playAudio()
                 }
             }
         } label: {
-            Image(systemName: viewModel.playbackService.isPlaying ? "pause.fill" : "play.fill")
+            Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                 .font(.title2)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -303,5 +338,12 @@ struct TTSPlayerView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
+    }
+
+    private func formatRate(_ rate: Float) -> String {
+        if rate == floor(rate) {
+            return String(format: "%.0f", rate)
+        }
+        return String(format: "%.2g", rate)
     }
 }

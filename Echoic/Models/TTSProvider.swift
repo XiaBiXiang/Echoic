@@ -10,6 +10,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
     case azure = "azure"
     case fishAudio = "fish_audio"
     case edgeTTS = "edge_tts"
+    case glm = "glm"
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: "Azure TTS"
         case .fishAudio: "Fish Audio"
         case .edgeTTS: "Edge TTS"
+        case .glm: "GLM (Zhipu AI)"
         }
     }
 
@@ -34,6 +36,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: "Neural TTS"
         case .fishAudio: "OpenAI Compatible"
         case .edgeTTS: "Free · No Key"
+        case .glm: "GLM-TTS"
         }
     }
 
@@ -46,6 +49,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: "server.rack"
         case .fishAudio: "fish"
         case .edgeTTS: "globe"
+        case .glm: "sparkles"
         }
     }
 
@@ -67,6 +71,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: "https://eastus.tts.speech.microsoft.com"
         case .fishAudio: "https://api.fish.audio"
         case .edgeTTS: ""
+        case .glm: "https://open.bigmodel.cn"
         }
     }
 
@@ -79,6 +84,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: "subscription-key"
         case .fishAudio: "fish-..."
         case .edgeTTS: ""
+        case .glm: ""
         }
     }
 
@@ -91,6 +97,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: "Azure Cognitive Services subscription key. Change Base URL to match your region."
         case .fishAudio: "Fish Audio API key for TTS. OpenAI-compatible endpoint."
         case .edgeTTS: "Free TTS service from Microsoft Edge. No API key needed."
+        case .glm: "Zhipu AI API Key for GLM TTS. OpenAI-compatible endpoint."
         }
     }
 
@@ -103,6 +110,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub/~/SpeechServices"
         case .fishAudio: "https://fish.audio/settings/api"
         case .edgeTTS: nil
+        case .glm: "https://open.bigmodel.cn/usercenter/apikeys"
         }
     }
 
@@ -128,6 +136,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: [.azure_tts]
         case .fishAudio: [.fish_tts1]
         case .edgeTTS: [.edge_tts]
+        case .glm: [.glm_tts]
         }
     }
 
@@ -140,6 +149,7 @@ enum TTSProvider: String, CaseIterable, Identifiable, Codable {
         case .azure: Voice.azureVoices
         case .fishAudio: Voice.fishAudioVoices
         case .edgeTTS: Voice.edgeTTSVoices
+        case .glm: Voice.glmVoices
         }
     }
 }
@@ -158,6 +168,7 @@ enum TTSModel: String, CaseIterable, Identifiable, Codable {
     case azure_tts = "azure_tts"
     case fish_tts1 = "fish_tts1"
     case edge_tts = "edge_tts"
+    case glm_tts = "glm-tts"
 
     var id: String { rawValue }
 
@@ -174,6 +185,7 @@ enum TTSModel: String, CaseIterable, Identifiable, Codable {
         case .azure_tts: "Neural TTS"
         case .fish_tts1: "Fish TTS v1"
         case .edge_tts: "Edge TTS"
+        case .glm_tts: "GLM-TTS"
         }
     }
 
@@ -186,6 +198,7 @@ enum TTSModel: String, CaseIterable, Identifiable, Codable {
         case .azure_tts: .azure
         case .fish_tts1: .fishAudio
         case .edge_tts: .edgeTTS
+        case .glm_tts: .glm
         }
     }
 }
@@ -254,6 +267,13 @@ struct Voice: Identifiable, Codable, Hashable {
         Voice(id: "en-US-GuyNeural", displayName: "Guy (Male)", provider: .edgeTTS),
         Voice(id: "en-US-DavisNeural", displayName: "Davis (Male)", provider: .edgeTTS),
         Voice(id: "en-US-EmmaNeural", displayName: "Emma (Female)", provider: .edgeTTS),
+    ]
+
+    static let glmVoices: [Voice] = [
+        Voice(id: "male-01", displayName: "Male 01", provider: .glm),
+        Voice(id: "female-01", displayName: "Female 01", provider: .glm),
+        Voice(id: "male-02", displayName: "Male 02", provider: .glm),
+        Voice(id: "female-02", displayName: "Female 02", provider: .glm),
     ]
 }
 

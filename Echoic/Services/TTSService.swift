@@ -9,15 +9,10 @@ protocol TTSServiceProtocol {
 // MARK: - TTS Service
 
 class TTSService: TTSServiceProtocol {
-    private let session: URLSession
-
-    init(session: URLSession = .shared) {
-        self.session = session
-    }
 
     func testConnection(for provider: TTSProvider) async throws {
         switch provider {
-        case .openai, .fishAudio:
+        case .openai, .fishAudio, .glm:
             try await testOpenAICompatible(provider: provider)
         case .mimo:
             try await testMiMo()
@@ -37,7 +32,7 @@ class TTSService: TTSServiceProtocol {
             throw TTSError.emptyText
         }
         switch model.provider {
-        case .openai, .fishAudio:
+        case .openai, .fishAudio, .glm:
             return try await synthesizeOpenAICompatible(text: text, model: model, voice: voice, format: format, provider: model.provider)
         case .mimo:
             return try await synthesizeMiMo(text: text, voice: voice)
@@ -52,7 +47,7 @@ class TTSService: TTSServiceProtocol {
         }
     }
 
-    // MARK: - OpenAI Compatible (OpenAI / Fish Audio)
+    // MARK: - OpenAI Compatible (OpenAI / Fish Audio / GLM)
 
     private func testOpenAICompatible(provider: TTSProvider) async throws {
         let apiKey = try retrieveAPIKey(for: provider)
@@ -78,7 +73,14 @@ class TTSService: TTSServiceProtocol {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let baseURL = (storedBase?.isEmpty ?? true) ? provider.defaultBaseURL : storedBase!
 
-        let urlString = "\(baseURL)/v1/audio/speech"
+        // GLM uses /api/paas/v4 path prefix, others use /v1
+        let pathPrefix: String
+        if provider == .glm {
+            pathPrefix = "/api/paas/v4"
+        } else {
+            pathPrefix = "/v1"
+        }
+        let urlString = "\(baseURL)\(pathPrefix)/audio/speech"
         guard let url = URL(string: urlString) else {
             throw TTSError.invalidURL
         }
@@ -88,12 +90,15 @@ class TTSService: TTSServiceProtocol {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: String] = [
+        var body: [String: String] = [
             "model": model.rawValue,
             "input": text,
             "voice": voice.id,
-            "response_format": format.rawValue,
         ]
+        // GLM only supports mp3 format; omit response_format to use default
+        if provider != .glm {
+            body["response_format"] = format.rawValue
+        }
         request.httpBody = try JSONEncoder().encode(body)
         request.timeoutInterval = 60
         return request
@@ -232,7 +237,6 @@ class TTSService: TTSServiceProtocol {
         let apiKey = try retrieveAPIKey(for: .mimo)
         let request = try buildMiMoRequest(text: "Hi", voice: TTSProvider.mimo.availableVoices.first!, apiKey: apiKey)
         let data = try await executeData(request)
-        // Verify response contains audio data
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               !choices.isEmpty else {
@@ -291,47 +295,37 @@ class TTSService: TTSServiceProtocol {
     // MARK: - Edge TTS
 
     private func testEdgeTTS() async throws {
-        // Edge TTS needs no key — just verify we can reach the token endpoint
-        let request = URLRequest(url: URL(string: "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1")!)
-        let (_, response) = try await session.data(for: request)
+        let url = URL(string: "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1")!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        let (_, response) = try await curlExecute(request)
         guard let http = response as? HTTPURLResponse, http.statusCode < 500 else {
             throw TTSError.serverError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
     }
 
     private func synthesizeEdgeTTS(text: String, voice: Voice) async throws -> Data {
-        // Edge TTS uses WebSocket-like protocol via HTTP multipart streaming
-        // We use the public web endpoint with SSML
         let ssml = """
         <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
             <voice name='\(voice.id)'>\(escapeXML(text))</voice>
         </speak>
         """
 
-        // First get a token
         let tokenURL = URL(string: "https://edge.api.speech.microsoft.com/cognitiveservices/v1?language=en-US")!
-        var tokenRequest = URLRequest(url: tokenURL)
-        tokenRequest.httpMethod = "POST"
-        tokenRequest.setValue("application/ssml+xml", forHTTPHeaderField: "Content-Type")
-        tokenRequest.setValue("audio-16khz-128kbitrate-mono-mp3", forHTTPHeaderField: "X-Microsoft-OutputFormat")
-        tokenRequest.httpBody = ssml.data(using: .utf8)
-        tokenRequest.timeoutInterval = 60
+        var request = URLRequest(url: tokenURL)
+        request.httpMethod = "POST"
+        request.setValue("application/ssml+xml", forHTTPHeaderField: "Content-Type")
+        request.setValue("audio-16khz-128kbitrate-mono-mp3", forHTTPHeaderField: "X-Microsoft-OutputFormat")
+        request.httpBody = ssml.data(using: .utf8)
+        request.timeoutInterval = 60
 
-        return try await executeData(tokenRequest)
+        return try await executeData(request)
     }
 
-    // MARK: - Helpers
-
-    private func retrieveAPIKey(for provider: TTSProvider) throws -> String {
-        guard let value = UserDefaults.standard.string(forKey: provider.apiKeyStorageKey),
-              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw TTSError.missingAPIKey
-        }
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    // MARK: - Network Helpers (curl-based, bypasses TLS)
 
     private func executeVoid(_ request: URLRequest) async throws {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await curlExecute(request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw TTSError.invalidResponse
         }
@@ -348,7 +342,7 @@ class TTSService: TTSServiceProtocol {
     }
 
     private func executeData(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await curlExecute(request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw TTSError.invalidResponse
         }
@@ -364,6 +358,125 @@ class TTSService: TTSServiceProtocol {
         default:
             throw TTSError.serverError(httpResponse.statusCode)
         }
+    }
+
+    /// Execute a URLRequest via `curl` subprocess (bypasses TLS validation)
+    private func curlExecute(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        guard let url = request.url else {
+            throw TTSError.invalidURL
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let process = Process()
+                    let outputPipe = Pipe()
+                    let errorPipe = Pipe()
+
+                    // Body goes to temp file to avoid binary corruption
+                    let bodyTempFile = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("echoic_response_\(UUID().uuidString)")
+
+                    // Use a unique marker so we can reliably find the status code in stdout
+                    let statusMarker = "__ECHOSTATUS__"
+                    var args = [
+                        "-s",                           // silent
+                        "-k",                           // insecure — bypass TLS
+                        "-D", "-",                      // dump headers to stdout
+                        "-o", bodyTempFile.path,        // body to temp file (preserves binary)
+                        "-w", "\(statusMarker)%{http_code}",  // status marker + code
+                        "--max-time", "60",
+                    ]
+
+                    args += ["-X", request.httpMethod ?? "GET"]
+
+                    if let headers = request.allHTTPHeaderFields {
+                        for (key, value) in headers {
+                            args += ["-H", "\(key): \(value)"]
+                        }
+                    }
+
+                    var requestTempFile: URL?
+                    if let body = request.httpBody {
+                        let tempFile = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("echoic_body_\(UUID().uuidString).json")
+                        try body.write(to: tempFile)
+                        args += ["-d", "@\(tempFile.path)"]
+                        requestTempFile = tempFile
+                    }
+
+                    args.append(url.absoluteString)
+
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+                    process.arguments = args
+                    process.standardOutput = outputPipe
+                    process.standardError = errorPipe
+
+                    try process.run()
+                    process.waitUntilExit()
+
+                    // Clean up request body temp file
+                    if let reqTemp = requestTempFile {
+                        try? FileManager.default.removeItem(at: reqTemp)
+                    }
+
+                    // Parse stdout (headers + status marker, all text)
+                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    let outputString = String(data: outputData, encoding: .utf8) ?? ""
+
+                    // Extract status code from the unique marker
+                    let statusCode: Int
+                    if let markerRange = outputString.range(of: statusMarker) {
+                        let afterMarker = outputString[markerRange.upperBound...]
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        statusCode = Int(afterMarker) ?? 0
+                    } else {
+                        // Fallback: parse from first HTTP header line "HTTP/1.1 200 OK"
+                        let firstLine = outputString.components(separatedBy: "\r\n").first ?? ""
+                        let parts = firstLine.components(separatedBy: " ")
+                        statusCode = parts.count >= 2 ? (Int(parts[1]) ?? 0) : 0
+                    }
+
+                    // If curl couldn't connect at all, read stderr for useful error message
+                    if statusCode == 0 {
+                        let errorOutput = String(
+                            data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8
+                        ) ?? ""
+                        let message = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                        try? FileManager.default.removeItem(at: bodyTempFile)
+                        continuation.resume(throwing: TTSError.clientError(
+                            message.isEmpty ? "Connection failed. Please check your network and API URL." : "Connection failed: \(message)"
+                        ))
+                        return
+                    }
+
+                    // Read body from temp file (raw binary, no encoding issues)
+                    let bodyData: Data
+                    if FileManager.default.fileExists(atPath: bodyTempFile.path) {
+                        bodyData = FileManager.default.contents(atPath: bodyTempFile.path) ?? Data()
+                        try? FileManager.default.removeItem(at: bodyTempFile)
+                    } else {
+                        bodyData = Data()
+                    }
+
+                    let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: "HTTP/1.1", headerFields: nil)!
+                    continuation.resume(returning: (bodyData, response))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Misc Helpers
+
+    private func retrieveAPIKey(for provider: TTSProvider) throws -> String {
+        guard let value = UserDefaults.standard.string(forKey: provider.apiKeyStorageKey),
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw TTSError.missingAPIKey
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func escapeXML(_ string: String) -> String {

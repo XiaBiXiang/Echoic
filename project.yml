@@ -20,6 +20,7 @@ targets:
         SWIFT_VERSION: "5.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Echoic/Info.plist
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
         INFOPLIST_KEY_CFBundleDisplayName: "Echoic"
         INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2025 Echoic. All rights reserved."

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 @MainActor
 class TTSViewModel: ObservableObject {
@@ -21,13 +22,37 @@ class TTSViewModel: ObservableObject {
     @Published var audioData: Data?
     @Published var savedFileURL: URL?
 
+    // MARK: - Playback State (forwarded from service)
+    @Published var isPlaying = false
+    @Published var currentTime: TimeInterval = 0
+    @Published var duration: TimeInterval = 0
+    @Published var playbackRate: Float = 1.0
+
     // MARK: - Dependencies
     let playbackService = AudioPlaybackService()
     let ttsService: TTSService
     private var synthesisTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     init(ttsService: TTSService = TTSService()) {
         self.ttsService = ttsService
+
+        // Forward playback service state to ViewModel's @Published properties
+        playbackService.$isPlaying
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isPlaying)
+
+        playbackService.$currentTime
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$currentTime)
+
+        playbackService.$duration
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$duration)
+
+        playbackService.$playbackRate
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$playbackRate)
     }
 
     // MARK: - Actions

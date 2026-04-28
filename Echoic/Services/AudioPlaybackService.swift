@@ -5,22 +5,24 @@ class AudioPlaybackService: NSObject, ObservableObject {
     @Published var isPlaying = false
     @Published var duration: TimeInterval = 0
     @Published var currentTime: TimeInterval = 0
+    @Published var playbackRate: Float = 1.0
 
     private var player: AVAudioPlayer?
     private var updateTimer: Timer?
 
+    static let availableRates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
     // MARK: - Playback Controls
 
-    func play(data: Data, format: AudioFormat) throws {
+    func play(data: Data, format: AudioFormat? = nil) throws {
         stop()
 
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("echoic_playback.\(format.fileExtension)")
-
-        try data.write(to: tempURL, options: .atomic)
-
-        let player = try AVAudioPlayer(contentsOf: tempURL)
+        // Use data-based init to avoid file extension mismatch issues
+        // (e.g. MiMo returns WAV but user selected MP3 format)
+        let player = try AVAudioPlayer(data: data)
         player.delegate = self
+        player.enableRate = true
+        player.rate = playbackRate
         player.prepareToPlay()
 
         self.duration = player.duration
@@ -32,8 +34,6 @@ class AudioPlaybackService: NSObject, ObservableObject {
 
         isPlaying = true
         startProgressTimer()
-
-        try? FileManager.default.removeItem(at: tempURL)
     }
 
     func stop() {
@@ -65,10 +65,25 @@ class AudioPlaybackService: NSObject, ObservableObject {
         currentTime = time
     }
 
+    // MARK: - Rate
+
+    func setRate(_ rate: Float) {
+        playbackRate = rate
+        player?.rate = rate
+    }
+
     // MARK: - Export
 
     func saveToDisk(data: Data, format: AudioFormat, filename: String?) throws -> URL {
-        let directory = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first!
+        // Use custom save directory if set, otherwise default to Downloads
+        let directory: URL
+        if let customPath = UserDefaults.standard.string(forKey: "save_directory"),
+           !customPath.isEmpty {
+            directory = URL(fileURLWithPath: customPath)
+        } else {
+            directory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        }
+
         let safeName = filename?.components(separatedBy: .init(charactersIn: "/\\:*?\"<>|")).joined()
             ?? "echoic_output"
         let destination = directory.appendingPathComponent("\(safeName).\(format.fileExtension)")

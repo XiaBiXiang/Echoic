@@ -19,6 +19,9 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 
+# xcodegen — project is generated from project.yml
+*.xcodeproj/
+
 # Build
 build/
 Build/

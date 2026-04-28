@@ -31,7 +31,9 @@ struct EchoicApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings") {
-                    showSettingsPanel.toggle()
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        showSettingsPanel.toggle()
+                    }
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }

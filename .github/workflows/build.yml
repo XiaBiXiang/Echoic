@@ -1,0 +1,70 @@
+name: Build & Package DMG
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Release
+        run: |
+          xcodebuild \
+            -project Echoic.xcodeproj \
+            -scheme Echoic \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package DMG
+        run: |
+          APP_PATH="$(find build/Build/Products/Release -name 'Echoic.app' -maxdepth 1 | head -1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: Echoic.app not found"
+            exit 1
+          fi
+
+          DMG_NAME="Echoic-${GITHUB_REF_NAME}.dmg"
+          STAGING_DIR="$(mktemp -d)"
+
+          # Copy app into staging
+          cp -R "$APP_PATH" "$STAGING_DIR/"
+
+          # Create DMG
+          hdiutil create \
+            -volname "Echoic" \
+            -srcfolder "$STAGING_DIR" \
+            -ov \
+            -format UDZO \
+            "$DMG_NAME"
+
+          echo "DMG created: $DMG_NAME"
+          ls -lh "$DMG_NAME"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Echoic-DMG
+          path: "*.dmg"
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.dmg"
+          generate_release_notes: true
