@@ -1,0 +1,160 @@
+package com.echoic.app
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import echoic.composeapp.generated.resources.Res
+import echoic.composeapp.generated.resources.icon
+import org.jetbrains.compose.resources.painterResource
+
+data class SidebarItem(
+    val id: Screen,
+    val icon: String,
+    val label: String,
+)
+
+@Composable
+fun Sidebar(
+    currentScreen: Screen,
+    onNavigate: (Screen) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val strings = LocalStrings.current
+
+    val items = listOf(
+        SidebarItem(Screen.HOME, "🏠", strings.home),
+        SidebarItem(Screen.CLOUD_TTS, "☁", strings.cloudTts),
+        SidebarItem(Screen.PROVIDERS, "🔧", strings.providers),
+        SidebarItem(Screen.LOCAL_MODELS, "💾", strings.localModels),
+    )
+
+    val width = if (expanded) 180.dp else 64.dp
+
+    Column(
+        modifier = Modifier
+            .width(width)
+            .fillMaxHeight()
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(12.dp))
+
+        // Brand + toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (expanded) Arrangement.spacedBy(8.dp) else Arrangement.Center,
+        ) {
+            Image(
+                painter = painterResource(Res.drawable.icon),
+                contentDescription = "Echoic Logo",
+                modifier = Modifier.size(32.dp),
+                contentScale = ContentScale.Fit,
+            )
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandHorizontally(expandFrom = Alignment.Start),
+                exit = shrinkHorizontally(shrinkTowards = Alignment.Start),
+            ) {
+                Text(
+                    text = "Echoic",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // Navigation items
+        items.forEach { item ->
+            SidebarNavItem(
+                item = item,
+                isActive = currentScreen == item.id,
+                expanded = expanded,
+                onClick = { onNavigate(item.id) },
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        // Settings — bottom
+        SidebarNavItem(
+            item = SidebarItem(Screen.CLOUD_TTS, "⚙", strings.settings),
+            isActive = false,
+            expanded = expanded,
+            onClick = onOpenSettings,
+        )
+
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun SidebarNavItem(
+    item: SidebarItem,
+    isActive: Boolean,
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 10.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (expanded) Arrangement.spacedBy(12.dp) else Arrangement.Center,
+    ) {
+        Text(
+            text = item.icon,
+            fontSize = 18.sp,
+            color = if (isActive) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandHorizontally(expandFrom = Alignment.Start),
+            exit = shrinkHorizontally(shrinkTowards = Alignment.Start),
+        ) {
+            Text(
+                text = item.label,
+                fontSize = 13.sp,
+                fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
+                color = if (isActive) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
